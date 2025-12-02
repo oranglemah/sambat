@@ -1,32 +1,41 @@
 import { NextResponse } from 'next/server';
-import { sendCiamRequest } from '@/lib/xl-client';
+import { sendApiRequest } from '@/lib/xl-client';
 
 export async function POST(request) {
     try {
         const { msisdn, otp } = await request.json();
         
-        // PENTING: Validate OTP ke CIAM
-        const path = "v2/validateOTP";
+        // PENTING: Kita pakai jalur API v8 MyXL untuk validasi OTP
+        const path = "api/v8/auth/otp-login";
         
         const payload = {
             msisdn: msisdn,
             otp: otp,
-            serviceid: ""
+            is_enterprise: false,
+            lang: "en"
         };
 
-        const data = await sendCiamRequest(path, payload);
+        console.log(`[LOGIN] Verifying OTP via v8...`);
         
-        // CIAM mengembalikan token langsung, bukan di dalam 'data.data'
-        // Format biasanya: { access_token: "...", refresh_token: "..." }
-        if (data && data.access_token) {
-            return NextResponse.json({
+        // Gunakan sendApiRequest
+        const data = await sendApiRequest(path, payload, null, "POST");
+        
+        // Cek hasil login
+        if (data && data.code === "000") {
+             // API v8 biasanya mengembalikan data dalam properti 'data'
+             // Isinya: access_token, refresh_token, id_token, dll.
+             return NextResponse.json({
                 status: "SUCCESS",
-                data: data // Kirim semua balasan CIAM ke frontend
-            });
+                data: data.data
+             });
         }
         
         return NextResponse.json(data);
     } catch (error) {
-        return NextResponse.json({ status: "FAILED", message: error.message }, { status: 500 });
+        console.error("[LOGIN Error]", error);
+        return NextResponse.json({ 
+            status: "FAILED", 
+            message: error.message || "Gagal Login" 
+        }, { status: 500 });
     }
 }
