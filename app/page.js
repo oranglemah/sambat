@@ -2,7 +2,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Navbar from '../components/Navbar';
+import Navbar from './components/Navbar';
 
 export default function Login() {
   const [step, setStep] = useState(1); // 1: Input Nomor, 2: Input OTP
