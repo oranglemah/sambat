@@ -1,4 +1,4 @@
-// app/components/Navbar.js
+import Navbar from './components/Navbar';
 export default function Navbar() {
   return (
     <nav className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-800 p-4 sticky top-0 z-50">
