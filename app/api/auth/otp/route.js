@@ -1,22 +1,32 @@
 import { NextResponse } from 'next/server';
-import { sendCiamRequest } from '@/lib/xl-client';
+import { sendApiRequest } from '@/lib/xl-client';
 
 export async function POST(request) {
     try {
         const { msisdn } = await request.json();
         
-        // PENTING: OTP request ke CIAM v2
-        const path = "v2/generateOTP";
+        // PENTING: Kita pakai jalur API v8 MyXL (bukan CIAM)
+        // Jalur ini menggunakan enkripsi xdata, jadi lebih dipercaya server
+        const path = "api/v8/auth/otp-request";
         
         const payload = {
             msisdn: msisdn,
-            serviceid: "",
-            captcha: ""
+            is_enterprise: false,
+            lang: "en"
         };
 
-        const data = await sendCiamRequest(path, payload);
+        console.log(`[OTP] Requesting via v8 for ${msisdn}...`);
+        
+        // Gunakan sendApiRequest (bukan sendCiamRequest)
+        // Parameter ke-3 (idToken) null karena belum login
+        const data = await sendApiRequest(path, payload, null, "POST");
+        
         return NextResponse.json(data);
     } catch (error) {
-        return NextResponse.json({ status: "FAILED", message: error.message }, { status: 500 });
+        console.error("[OTP Error]", error);
+        return NextResponse.json({ 
+            status: "FAILED", 
+            message: error.message || "Gagal request OTP" 
+        }, { status: 500 });
     }
 }
