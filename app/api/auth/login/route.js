@@ -1,41 +1,55 @@
 import { NextResponse } from 'next/server';
-import { sendApiRequest } from '@/lib/xl-client';
+import { sendCiamRequest, sendApiRequest } from '@/lib/xl-client';
 
 export async function POST(request) {
     try {
         const { msisdn, otp } = await request.json();
         
-        // PENTING: Kita pakai jalur API v8 MyXL untuk validasi OTP
-        const path = "api/v8/auth/otp-login";
-        
-        const payload = {
+        // TAHAP 1: Validate OTP ke CIAM
+        // Mendapatkan access_token sementara
+        console.log("Step 1: Validating OTP with CIAM...");
+        const ciamPath = "v2/validateOTP";
+        const ciamPayload = {
             msisdn: msisdn,
             otp: otp,
+            serviceid: ""
+        };
+
+        const ciamData = await sendCiamRequest(ciamPath, ciamPayload);
+        
+        // Jika gagal di CIAM
+        if (!ciamData || !ciamData.access_token) {
+            throw new Error("Gagal validasi OTP di CIAM: " + JSON.stringify(ciamData));
+        }
+
+        // TAHAP 2: Tukar Token ke MyXL (API v8)
+        // Menukarkan access_token CIAM dengan id_token MyXL
+        console.log("Step 2: Exchanging token with MyXL API...");
+        const apiPath = "api/v8/auth/login";
+        const apiPayload = {
+            access_token: ciamData.access_token, // Token dari tahap 1
             is_enterprise: false,
             lang: "en"
         };
+        
+        // Request ke API v8 (Login)
+        // Token belum ada (null), karena kita sedang mau login
+        const apiData = await sendApiRequest(apiPath, apiPayload, null, "POST");
 
-        console.log(`[LOGIN] Verifying OTP via v8...`);
-        
-        // Gunakan sendApiRequest
-        const data = await sendApiRequest(path, payload, null, "POST");
-        
-        // Cek hasil login
-        if (data && data.code === "000") {
-             // API v8 biasanya mengembalikan data dalam properti 'data'
-             // Isinya: access_token, refresh_token, id_token, dll.
-             return NextResponse.json({
+        if (apiData && apiData.code === "000") {
+            // BERHASIL! Gabungkan data penting
+            // Kita butuh 'id_token' untuk request selanjutnya
+            // Kita butuh 'access_token' (yang baru dari API, bukan CIAM) untuk signature
+            return NextResponse.json({
                 status: "SUCCESS",
-                data: data.data
-             });
+                data: apiData.data // Berisi id_token, access_token, refresh_token
+            });
+        } else {
+            throw new Error("Gagal tukar token di MyXL: " + JSON.stringify(apiData));
         }
-        
-        return NextResponse.json(data);
+
     } catch (error) {
-        console.error("[LOGIN Error]", error);
-        return NextResponse.json({ 
-            status: "FAILED", 
-            message: error.message || "Gagal Login" 
-        }, { status: 500 });
+        console.error("Login Error:", error);
+        return NextResponse.json({ status: "FAILED", message: error.message || "Gagal Login" }, { status: 500 });
     }
 }
