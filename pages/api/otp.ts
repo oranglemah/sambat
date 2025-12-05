@@ -8,11 +8,11 @@ const UA =
   process.env.UA ??
   "myXL / 8.9.0(1202); com.android.vending; (samsung; SM-N935F; SDK 33; Android 13)";
 
-// versi simple dari java_like_timestamp GMT+7
+// Versi sederhana java_like_timestamp(now) GMT+7
 function javaLikeTimestampGmt7(): string {
   const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const gmt7 = new Date(utc + 7 * 60 * 60000);
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const gmt7 = new Date(utcMs + 7 * 60 * 60000);
 
   const y = gmt7.getFullYear();
   const m = String(gmt7.getMonth() + 1).padStart(2, "0");
@@ -21,7 +21,7 @@ function javaLikeTimestampGmt7(): string {
   const mm = String(gmt7.getMinutes()).padStart(2, "0");
   const ss = String(gmt7.getSeconds()).padStart(2, "0");
   const ms = gmt7.getMilliseconds();
-  const centi = String(Math.floor(ms / 10)).padStart(2, "0");
+  const centi = String(Math.floor(ms / 10)).padStart(2, "0"); // 2 digit
 
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}.${centi}+07:00`;
 }
@@ -29,31 +29,34 @@ function javaLikeTimestampGmt7(): string {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { phone, msisdn } = req.body as { phone?: string; msisdn?: string };
 
-  let raw = (msisdn || phone || "").trim();
-  if (!raw) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Nomor telepon wajib diisi." });
-  }
-
-  // normalisasi: 0877… -> 62877…
-  raw = raw.replace(/[^0-9]/g, "");
-  if (raw.startsWith("08")) {
-    raw = "62" + raw.slice(1);
-  }
-  if (!raw.startsWith("62")) {
+  let nomor = (msisdn || phone || "").trim();
+  if (!nomor) {
     return res.status(400).json({
       success: false,
-      message: "Format nomor salah. Pakai 08xxxx atau 628xxxx.",
+      message: "Nomor telepon wajib diisi.",
+    });
+  }
+
+  // Boleh input 087xxxxx atau 6287xxxxx
+  nomor = nomor.replace(/[^0-9]/g, "");
+  if (nomor.startsWith("08")) {
+    nomor = "62" + nomor.slice(1);
+  }
+
+  // Sama kayak validate_contact di Python: harus mulai 628 dan max 14 digit
+  if (!nomor.startsWith("628") || nomor.length > 14) {
+    return res.status(400).json({
+      success: false,
+      message: "Nomor tidak valid. Gunakan format 0877.. atau 62877.. (maks 14 digit).",
     });
   }
 
   try {
     const axRequestAt = javaLikeTimestampGmt7();
-    const axRequestId = Date.now().toString();
+    const axRequestId = crypto.randomUUID();
 
     const url = new URL(`${BASE_CIAM_URL}/realms/xl-ciam/auth/otp`);
-    url.searchParams.set("contact", raw);
+    url.searchParams.set("contact", nomor);
     url.searchParams.set("contactType", "SMS");
     url.searchParams.set("alternateContact", "false");
 
@@ -81,26 +84,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const text = await resp.text();
     let data: any;
+
     try {
       data = JSON.parse(text);
     } catch {
-      data = {
-        status: "FAILED",
-        error: "NON_JSON_RESPONSE",
-        message: text,
-      };
+      // Kalau balikan HTML (misal Access denied Cloudflare), tetap kirim ke client
+      return res.status(resp.ok ? 200 : 400).json({
+        success: false,
+        message: "Response bukan JSON dari CIAM (mungkin diblokir Cloudflare).",
+        raw: text,
+      });
     }
 
-    console.log("[DEBUG] OTP HTTP:", resp.status);
-    console.log("[DEBUG] OTP BODY:", data);
+    console.log("[OTP] HTTP:", resp.status);
+    console.log("[OTP] BODY:", data);
 
-    // sama kayak versi Python: harus ada subscriber_id
+    // Logic sama seperti Python: harus ada subscriber_id
     if (!resp.ok || !data || !data.subscriber_id) {
       return res.status(400).json({
         success: false,
         message:
-          data?.error ||
-          data?.message ||
+          data.error ||
+          data.message ||
           `Gagal request OTP (HTTP ${resp.status}).`,
         raw: data,
       });
@@ -108,11 +113,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({
       success: true,
+      message: "OTP berhasil dikirim.",
       subscriber_id: data.subscriber_id,
-      raw: data,
     });
   } catch (err: any) {
-    console.error("[ERROR] Gagal request OTP:", err);
+    console.error("[OTP] ERROR:", err);
     return res.status(500).json({
       success: false,
       message: err?.message || "Terjadi kesalahan server saat request OTP.",
