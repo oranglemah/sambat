@@ -25,6 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const data = await response.json();
+    console.log("[DEBUG] Hasil OTP:", data); // ✅ ini tempat yang benar
 
     if (data.status !== "SUCCESS") {
       return res.status(400).json({ error: data.message || "Gagal mengirim OTP" });
@@ -32,6 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.status(200).json({ success: true, data });
   } catch (err) {
+    console.error("[ERROR] Gagal mengirim OTP:", err);
     res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 }
